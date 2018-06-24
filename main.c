@@ -15,53 +15,48 @@
 
 static bool killProcesses = false;
 
-void shmC1(void) {
+void shmC1(void) {          // shared memory thread C1
 
     key_t shmKeyC1;
     int shmIdC1;
     struct MemoryC1 *shmPtrC1;
 
-    int shmC1pid = getpid();
-    printf("   shmC1 pid: %d\n", shmC1pid);
+    printf("   shmC1 pid: %d\n", getpid());
 
     shmKeyC1 = ftok("shmKeyC1", 65);
 
-    shmIdC1 = shmget(shmKeyC1, sizeof(struct MemoryC1), 0666);
+    shmIdC1 = shmget(shmKeyC1, sizeof(struct MemoryC1), 0666);      // shmget returns an identifier in shmIdC1
 
     if (shmIdC1 == -1) {
         printf("   shmgetC1 error processC\n");
         exit(EXIT_FAILURE);
-    } else {
-        printf("   shmC1 has received a shared memory %d\n", shmIdC1);
     }
+    //printf("   shmC1 has received a shared memory %d\n", shmIdC1);
 
-    shmPtrC1 = (struct MemoryC1 *) shmat(shmIdC1, NULL, 0);
+    shmPtrC1 = (struct MemoryC1 *) shmat(shmIdC1, NULL, 0);         // attache shared memory
 
     if ((long) shmPtrC1 == -1) {
         printf("   shmatC1 error processC\n");
         exit(EXIT_FAILURE);
-    } else {
-        printf("   shmC1 has attached the shared memory %p\n", shmPtrC1);
     }
+    //printf("   shmC1 has attached the shared memory %p\n", shmPtrC1);
 
-    while (shmPtrC1->status != FILLED) { ;
+    while (shmPtrC1->status != FILLED) { ;                          // wait until status is FILLED
     }
-    printf("   shmC1 found the data is ready...\n");
+    //printf("   shmC1 found the data is ready...\n");
 
     printf("   value = %li\n", shmPtrC1->data);
 
-    shmPtrC1->status = TAKEN;
-    printf("   shmC1 has informed processB data have been taken...\n");
+    shmPtrC1->status = TAKEN;                                       // informed processB data have been taken
+    //printf("   shmC1 has informed processB data have been taken...\n");
+
+    shmdt((void *) shmPtrC1);                                       // detached shared memory
+    printf("   shmC1 has detached its shared memory...\n");
 
     if (killProcesses) {
-        shmdt((void *) shmPtrC1);
-        printf("   shmC1 has detached its shared memory...\n");
-
-        int k = kill(shmC1pid, SIGUSR1);
-        printf("shmC1pid %d %d\n", shmC1pid, k);
-
-        //exit(EXIT_SUCCESS);
-        pthread_exit(NULL);
+        //kill(getpid(), SIGUSR1);
+        puts("   c1Pthread exit\n");
+        pthread_exit(NULL);                 // terminate the calling thread
     }
 }
 
@@ -69,22 +64,17 @@ void *c1Pthread(void *c1) {
 
     int c1pid = getpid();
     printf("   C1 pid: %d\n", c1pid);
-    printf("   C1 pthread id: %lu\n", pthread_self());
+    //printf("   C1 pthread id: %lu\n", pthread_self());
 
-    if (killProcesses) {
-        puts("c1Pthread exit\n");
-        pthread_exit(NULL);
-    }
+    shmC1();                                // go to shared memory thread C1
 
-    shmC1();
-
-    return NULL;
+    return c1;
 }
 
-void wait_c2_thread(void) {
+void wait_c2Pthread(void) {
     time_t start_time = time(NULL);
     time_t current;
-    const int period = 1;
+    const int period = 1;                   // update every 1 sec
 
     do {
         current = time(NULL);
@@ -93,22 +83,21 @@ void wait_c2_thread(void) {
 
 void *c2Pthread(void *c2) {
 
-    int c2pid = getpid();
-    printf("   C2 pid: %d\n", c2pid);
-    printf("   C2 pthread id: %lu\n", pthread_self());
+    printf("   C2 pid: %d\n", getpid());
+    //printf("   C2 pthread id: %lu\n", pthread_self());
 
     if (killProcesses) {
-        puts("c2Pthread exit\n");
-        pthread_exit(NULL);
+        puts("   c2Pthread exit\n");
+        pthread_exit(NULL);                 // terminate the calling thread
     }
 
-    for (int i = 0; i < 3600; ++i) {        // c2_thread work time = 1 hour
+    for (int i = 0; i < 3600; ++i) {        // c2Pthread work time = 1 hour
         puts("   doing well\n");
 
-        wait_c2_thread();
+        wait_c2Pthread();                   // update output and load CPU
     }
 
-    return NULL;
+    return c2;
 }
 
 void processC(void) {
@@ -118,7 +107,7 @@ void processC(void) {
     int pid = getpid();
 
     if (cPid != pid) {
-        cPid = fork();
+        cPid = fork();                              // create Process C
     }
     printf("  C pid: %d, pid: %d\n", pid, cPid);
 
@@ -127,38 +116,36 @@ void processC(void) {
     if (cPid == -1) {
         perror("  processC fork failed\n");
         exit(EXIT_FAILURE);
-    } else if (cPid > 0) {
+    } else if (cPid > 0) {                          // parent processC
         printf("  parent processC pid: %d\n", getpid());
-    } else if (cPid == 0) {
+    } else if (cPid == 0) {                         // child processC
         printf("  child processC pid: %d\n", getpid());
 
-        if (pthread_create(&thread1, NULL, c1Pthread, NULL)) {
+        /* Create independent threads each of which will execute function */
+        if (pthread_create(&thread1, NULL, c1Pthread, NULL)) {  // create a new thread - C1
             printf("  threadC1 error\n");
             exit(EXIT_FAILURE);
         }
+        //printf("threadC1 ID; %lu\n", thread1);    // return identifier of current thread
 
-        if (pthread_create(&thread2, NULL, c2Pthread, NULL)) {
+        if (pthread_create(&thread2, NULL, c2Pthread, NULL)) {  // create a new thread - C2
             printf("  threadC2 error\n");
             exit(EXIT_FAILURE);
         }
+        //printf("threadC2 ID; %lu\n", thread2);    // return identifier of current thread
 
-        if (pthread_join(thread1, NULL)) {
+        if (pthread_join(thread1, NULL)) {          // wait for termination of another thread
             printf("  error join threadC1\n");
             exit(EXIT_FAILURE);
         }
 
-        if (pthread_join(thread2, NULL)) {
+        if (pthread_join(thread2, NULL)) {          // wait for termination of another thread
             printf("  error join threadC2\n");
             exit(EXIT_FAILURE);
         }
 
         if (killProcesses) {
-
-            pthread_detach(thread1);
-            pthread_detach(thread2);
-
-            int k = kill(cPid, SIGUSR1);
-            printf("cPid %d %d\n", cPid, k);
+            kill(cPid, SIGUSR1);
             exit(EXIT_SUCCESS);
         }
     }
@@ -170,68 +157,61 @@ void shmB(long i) {
     int shmIdB;
     struct MemoryB *shmPtrB;
 
-    shmKeyB = ftok("shmKeyB", 65); // generate unique key
+    shmKeyB = ftok("shmKeyB", 65);                          // generate unique key
 
-    // shmget returns an identifier in shmIdB
-    shmIdB = shmget(shmKeyB, sizeof(struct MemoryB), 0666 | IPC_CREAT);
+    shmIdB = shmget(shmKeyB, sizeof(struct MemoryB), 0666 | IPC_CREAT); // shmget returns an identifier in shmIdB
 
     if (shmIdB == -1) {
         printf(" shmgetB error processB\n");
         exit(EXIT_FAILURE);
-    } else {
-        printf(" processB has received a shared memory %d\n", shmIdB);
     }
+    //printf(" processB has received a shared memory %d\n", shmIdB);
 
-    shmPtrB = (struct MemoryB *) shmat(shmIdB, NULL, 0); // shmat to attach to shared memory.
+    shmPtrB = (struct MemoryB *) shmat(shmIdB, NULL, 0);    // shmat to attach to shared memory.
 
     if ((long) shmPtrB == -1) {
         printf(" shmatB error processB\n");
         exit(EXIT_FAILURE);
-    } else {
-        printf(" processB has attached the shared memory %p\n", shmPtrB);
     }
+    //printf(" processB has attached the shared memory %p\n", shmPtrB);
 
     shmPtrB->status = NOT_READY;
     shmPtrB->data = i;
-    printf(" processB has filled %li in shared memory...\n", shmPtrB->data);
+    //printf(" processB has filled %li in shared memory...\n", shmPtrB->data);
     shmPtrB->status = FILLED;
 
-    int shmBpid = getpid();
-    printf(" shmB pid: %d\n", shmBpid);
+    printf(" shmB pid: %d\n", getpid());
 
-    processC();                            // start C process
+    processC();                                             // start C process
 
-    while (shmPtrB->status != TAKEN) {
+    while (shmPtrB->status != TAKEN) { // wait until status becomes TAKEN, meaning that the c1Pthread has taken the data
         sleep(1);
     }
 
+    //printf(" processB has detected the completion of processC1...\n");
+
+    shmdt((void *) shmPtrB);                                // detached shared memory
+    //printf(" processB has detached its shared memory...\n");
+
+    shmctl(shmIdB, IPC_RMID, NULL);                         // remove shared memory ID
+    printf(" processB has removed its shared memory...\n");
+
     if (killProcesses) {
-        //printf(" processB has detected the completion of processC...\n");
-
-        shmdt((void *) shmPtrB);
-        printf(" processB has detached its shared memory...\n");
-
-        shmctl(shmIdB, IPC_RMID, NULL);
-        printf(" processB has removed its shared memory...\n");
-
-        int k = kill(shmBpid, SIGUSR1);
-        printf("shmBpid %d %d\n", shmBpid, k);
-
+        kill(getpid(), SIGUSR1);
         exit(EXIT_SUCCESS);
     }
 }
 
 void processB(long inputLong) {
 
-    int bpid = getpid();
-    printf(" processB pid: %d\n", bpid);
+    printf(" processB pid: %d\n", getpid());
 
-    long input_pow = inputLong * inputLong; // squaring
-    printf(" 'B' squaring result: %li\n", input_pow);
+    long input_pow = inputLong * inputLong;                 // squaring
+    //printf(" 'B' squaring result: %li\n", input_pow);
 
     if (input_pow == 100) {
         killProcesses = true;
-        printf("!-kill all Processes-!\n");
+        //printf("!-kill all Processes-!\n");
     }
 
     shmB(input_pow);
@@ -244,20 +224,17 @@ void aProcess() {
     int fd[2];
     pid_t aPid = -1, pid;
     int status;
-    long a = 0;
+    long input = 0;
     char in[BUF_SIZE];
 
-    while (a != 10) {
-        int inputScanPid = getpid();
-        printf("inputScanPid: %d\n", inputScanPid);
+    while (input != 10) {
+        printf("inputScanPid: %d\n", getpid());
 
         int s = scanf("%s", in);        // user input
         assert(s == 1);     // only one 'line' allowed
 
-        long input_convert = strtol(in, NULL, 10);  // convert input string to 'long' number
-        printf("input_convert: %li, len: %zu\n", input_convert, sizeof(input_convert));
-
-        a = input_convert;
+        input = strtol(in, NULL, 10);  // convert input string to 'long' number
+        printf("input: %li\n", input);
 
         if (pipe(fd) == -1) {
             perror("pipe fd failed\n");
@@ -267,37 +244,35 @@ void aProcess() {
         pid = getpid();
 
         if (aPid != pid) {
-            aPid = fork();          // start process A
+            aPid = fork();                   // create process A
         }
         printf("aPid: %d, pid: %d\n", aPid, pid);
 
         if (aPid == -1) {
             perror("aPid fork failed\n");
             exit(EXIT_FAILURE);
-        } else if (aPid > 0) {              // Parent process
+        } else if (aPid > 0) {              // Parent process; return process ID of the child process to the parent
             close(fd[0]);                   // Close reading end of pipe
 
-            write(fd[1], &a, sizeof(a));  // Write input string
+            write(fd[1], &input, sizeof(input));  // Write input string
 
             close(fd[1]);                   // close writing end of pipe
 
-            int ppipe_pid = getpid();
-            printf("Parent pipe pid: %d\n", ppipe_pid);
+            printf("Parent pipe pid: %d\n", getpid());
 
             pid = wait(&status);
             printf("aProcess detects process %d was done.\n", pid);
 
             if (killProcesses) {
-                wait(NULL);                     // Wait for child to send a string
+                wait(NULL);                 // Wait for child to send a string
 
                 printf("aProcess process done.\n");
 
-                int k = kill(ppipe_pid, SIGUSR1);
-                printf("ppipe_pid %d %d\n", ppipe_pid, k);
+                kill(getpid(), SIGUSR1);
 
                 exit(EXIT_SUCCESS);
             }
-        } else if (aPid == 0) {             // child process
+        } else if (aPid == 0) {             // child process == process B, with ID == aPid
             close(fd[1]);                   // Close writing end of pipe
 
             long pipeRead = 0;
@@ -305,21 +280,18 @@ void aProcess() {
 
             close(fd[0]);                   // Close reading end
 
-            int cpipe_pid = getpid();
-            printf("child pipe pid: %d\n", cpipe_pid);
+            printf("child pipe pid: %d\n", getpid());
 
             processB(pipeRead);             // run process B
 
             if (killProcesses) {
-                int k = kill(cpipe_pid, SIGUSR1);
-                printf("cpipe_pid %d %d\n", cpipe_pid, k);
+                kill(getpid(), SIGUSR1);
                 exit(EXIT_SUCCESS);
             }
         }
 
         if (killProcesses) {
-            int k = kill(inputScanPid, SIGUSR1);
-            printf("inputScanPid %d %d\n", inputScanPid, k);
+            kill(getpid(), SIGUSR1);
         }
     }
 }
